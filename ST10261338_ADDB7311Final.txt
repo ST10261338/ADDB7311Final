@@ -1,0 +1,313 @@
+--Q2
+Select 
+    dt.Donor_id, 
+    b.bike_type, 
+    b.description, 
+    dt.value
+from 
+    donation dt, 
+    bike b, 
+    donor d
+where 
+    d.donor_id = dt.donor_id
+and 
+    dt.bike_id = b.bike_id
+and 
+    dt.value > 1500;
+
+--q3
+SET SERVEROUTPUT ON;
+DECLARE
+    -- Constants
+    v_vat_rate CONSTANT NUMBER := 0.15;
+
+    -- Variables to store data from each row
+    v_description BIKE.DESCRIPTION%TYPE;
+    v_manufacturer BIKE.MANUFACTURER%TYPE;
+    v_type BIKE.BIKE_TYPE%TYPE;
+    v_value DONATION.VALUE%TYPE;
+    v_vat_amount NUMBER;
+    v_total_amount NUMBER;
+
+    -- Cursor to select relevant data for Road Bikes only
+    CURSOR road_bike_cursor IS
+        SELECT 
+            B.DESCRIPTION,
+            B.MANUFACTURER,
+            B.BIKE_TYPE,
+            D.VALUE
+        FROM 
+            BIKE B
+        JOIN 
+            DONATION D ON B.BIKE_ID = D.BIKE_ID
+        WHERE 
+            B.BIKE_TYPE = 'Road Bike';
+BEGIN
+    -- Open cursor and loop through each Road Bike
+    OPEN road_bike_cursor;
+    LOOP
+        FETCH road_bike_cursor INTO v_description, v_manufacturer, v_type, v_value;
+        EXIT WHEN road_bike_cursor%NOTFOUND;
+
+        -- Calculate VAT and total amount
+        v_vat_amount := ROUND(v_value * v_vat_rate, 2);
+        v_total_amount := ROUND(v_value + v_vat_amount, 2);
+
+        -- Display formatted output
+        DBMS_OUTPUT.PUT_LINE('BIKE DESCRIPTION:      ' || v_description);
+        DBMS_OUTPUT.PUT_LINE('BIKE MANUFACTURER:     ' || v_manufacturer);
+        DBMS_OUTPUT.PUT_LINE('BIKE TYPE:             ' || v_type);
+        DBMS_OUTPUT.PUT_LINE('VALUE:                 R ' || TO_CHAR(v_value));
+        DBMS_OUTPUT.PUT_LINE('VAT:                   R ' || TO_CHAR(v_vat_amount));
+        DBMS_OUTPUT.PUT_LINE('TOTAL AMNT:            R ' || TO_CHAR(v_total_amount));
+        DBMS_OUTPUT.PUT_LINE('--------------------------------------------------------------------------');
+    END LOOP;
+
+    -- Close cursor
+    CLOSE road_bike_cursor;
+END;
+
+
+--Q4.1
+Create or replace View vwBikeRUs
+as
+Select 
+    d.donor_fname || ', ' || d.donor_lname as donor_name,
+    d.contact_no, 
+    b.bike_type, 
+    dt.donation_date
+from 
+    donor d
+JOIN 
+    donation dt ON d.donor_ID = dt.donor_ID
+JOIN 
+    bike b ON dt.bike_ID = b.bike_ID
+WHERE 
+    dt.vol_id = 'vol105';
+
+--execution Q4.2
+SELECT * FROM vwBikeRUs;
+
+--Q4.3
+/*
+Benefits of using views:
+
+1. Simplifies Complex Queries for Users:
+   Views consolidate joins accross various tables in the database such as DONOR,
+   DONATION, and BIKE in my created view, into a simple single. This allows users
+   to gain access to relevant informations with a very simple SELECT statement
+   without the prerequesite knowledge about the tables underlying relationships
+
+2. Enhances Security and Data Access Control:
+   Views create a solution to restrict access to specfic data by restricting the
+   displayed data to only show the releveant data in columns and rows. My view
+   for example hides other donor details such as email and address, thus ensuring
+   that only necessary information is accessible, which helps maintain data privacy.
+
+*/
+
+
+--Q5
+CREATE OR REPLACE PROCEDURE spDonorDetails (p_bike_id IN BIKE.BIKE_ID%TYPE) AS
+    -- Declare variables to store output values
+    v_donor_name VARCHAR2(100);
+    v_contact_no DONOR.CONTACT_NO%TYPE;
+    v_volunteer_name VOLUNTEER.VOL_FNAME%TYPE;
+    v_donation_date DONATION.DONATION_DATE%TYPE;
+BEGIN
+    -- Retrieve donor, volunteer, and donation details based on bike ID
+    SELECT 
+        D.DONOR_FNAME || ' ' || D.DONOR_LNAME,
+        D.CONTACT_NO,
+        V.VOL_FNAME,
+        DN.DONATION_DATE
+    INTO 
+        v_donor_name, v_contact_no, v_volunteer_name, v_donation_date
+    FROM 
+        DONOR D
+    INNER JOIN 
+        DONATION DN ON D.DONOR_ID = DN.DONOR_ID
+    INNER JOIN 
+        VOLUNTEER V ON dn.vol_id = V.VOL_ID
+    WHERE 
+        DN.BIKE_ID = p_bike_id;
+
+    -- Display the retrieved information
+    DBMS_OUTPUT.PUT_LINE('ATTENTION: ' || v_donor_name || ' assisted by: ' || v_volunteer_name || ' donated a bike on the ' || TO_CHAR(v_donation_date, 'DD-Mon-YYYY'));
+
+EXCEPTION
+    -- Exception handling to manage scenarios where the bike ID is not found
+    WHEN NO_DATA_FOUND THEN
+        DBMS_OUTPUT.PUT_LINE('No donation record found for the provided bike ID: ' || p_bike_id);
+    -- Exception handling to catch any other unexpected errors
+    WHEN OTHERS THEN
+        DBMS_OUTPUT.PUT_LINE('An unexpected error occurred: ' || SQLERRM);
+END spDonorDetails;
+
+--execution code
+BEGIN
+    spDonorDetails('B004');
+END;
+
+
+--Q6
+CREATE OR REPLACE FUNCTION fnBikeTypeCount
+RETURN SYS_REFCURSOR
+IS
+    -- Declare a cursor to return the bike type and their count
+    bike_type_cursor SYS_REFCURSOR;
+BEGIN
+    -- Open the cursor with a query that counts each bike type
+    OPEN bike_type_cursor FOR
+    SELECT 
+        BIKE_TYPE,
+        COUNT(*) AS bike_count
+    FROM 
+        BIKE
+    GROUP BY 
+        BIKE_TYPE;
+
+    -- Return the cursor to the caller
+    RETURN bike_type_cursor;
+
+EXCEPTION
+    -- Exception handling for any unexpected errors during cursor opening
+    WHEN OTHERS THEN
+        DBMS_OUTPUT.PUT_LINE('An unexpected error occurred: ' || SQLERRM);
+        RETURN NULL;  -- Return NULL if an error occurs
+END fnBikeTypeCount;
+
+--execution code
+DECLARE
+    bike_type_cursor SYS_REFCURSOR;
+    v_bike_type BIKE.BIKE_TYPE%TYPE;
+    v_bike_count NUMBER;
+BEGIN
+    -- Call the function and get the cursor
+    bike_type_cursor := fnBikeTypeCount;
+
+    -- Loop through the cursor to display each bike type and count
+    LOOP
+        FETCH bike_type_cursor INTO v_bike_type, v_bike_count;
+        EXIT WHEN bike_type_cursor%NOTFOUND;
+
+        DBMS_OUTPUT.PUT_LINE('BIKE TYPE: ' || v_bike_type || ' - COUNT: ' || v_bike_count);
+    END LOOP;
+
+    -- Close the cursor
+    CLOSE bike_type_cursor;
+END;
+
+--Q7
+DECLARE
+    -- Define a cursor to retrieve bike details along with their value from the donation table
+    CURSOR bike_cursor IS
+        SELECT 
+            BIKE.BIKE_ID,
+            BIKE.BIKE_TYPE,
+            BIKE.MANUFACTURER,
+            DONATION.VALUE
+        FROM 
+            BIKE
+        JOIN 
+            DONATION ON BIKE.BIKE_ID = DONATION.BIKE_ID;
+
+    -- Variables to hold values fetched from the cursor
+    v_bike_id BIKE.BIKE_ID%TYPE;
+    v_bike_type BIKE.BIKE_TYPE%TYPE;
+    v_manufacturer BIKE.MANUFACTURER%TYPE;
+    v_value DONATION.VALUE%TYPE;
+    v_status VARCHAR2(10);  -- Variable to store the star status
+
+BEGIN
+    -- Open the cursor and loop through each bike record
+    OPEN bike_cursor;
+    LOOP
+        FETCH bike_cursor INTO v_bike_id, v_bike_type, v_manufacturer, v_value;
+        EXIT WHEN bike_cursor%NOTFOUND;
+
+        -- Use IF statements to determine the star status based on the bike's value
+        IF v_value BETWEEN 0 AND 1500 THEN
+            v_status := '*';
+        ELSIF v_value > 1500 AND v_value <= 3000 THEN
+            v_status := '**';
+        ELSIF v_value > 3000 THEN
+            v_status := '***';
+        END IF;
+
+        -- Display the bike information along with the assigned status
+        DBMS_OUTPUT.PUT_LINE('BIKE ID:            '    || v_bike_id );
+        DBMS_OUTPUT.PUT_LINE('BIKE TYPE:          ' || v_bike_type );
+        DBMS_OUTPUT.PUT_LINE('BIKE MANUFACTURER:  ' || v_manufacturer );
+        DBMS_OUTPUT.PUT_LINE('BIKE VALUE:         R' || v_value );
+        DBMS_OUTPUT.PUT_LINE('STATUS:             ' || v_status);
+        DBMS_OUTPUT.PUT_LINE('----------------------------------');
+    END LOOP;
+
+    -- Close the cursor
+    CLOSE bike_cursor;
+
+EXCEPTION
+    -- Handle any unexpected errors during cursor operations
+    WHEN OTHERS THEN
+        DBMS_OUTPUT.PUT_LINE('An error occurred: ' || SQLERRM);
+        CLOSE bike_cursor;  -- Ensure the cursor is closed if an error occurs
+END;
+
+--Q8
+SELECT 
+    BIKE.BIKE_ID,
+    BIKE.BIKE_TYPE,
+    BIKE.MANUFACTURER,
+    DONATION.VALUE,
+    -- Use CASE to assign the star status based on the bike value
+    CASE
+        WHEN DONATION.VALUE BETWEEN 0 AND 1500 THEN '*'
+        WHEN DONATION.VALUE > 1500 AND DONATION.VALUE <= 3000 THEN '**'
+        WHEN DONATION.VALUE > 3000 THEN '***'
+    END AS STATUS
+FROM 
+    BIKE
+JOIN 
+    DONATION ON BIKE.BIKE_ID = DONATION.BIKE_ID
+ORDER BY 
+    BIKE.BIKE_ID;
+
+
+--Q9
+--Prevent donation deletion trigger
+CREATE OR REPLACE TRIGGER prevent_donation_deletion
+BEFORE DELETE ON DONATION
+FOR EACH ROW
+BEGIN
+    -- Raise an exception to prevent deletion
+    RAISE_APPLICATION_ERROR(-20001, 'Deletion is not allowed on the DONATION table.');
+END;
+
+--code to delete from table
+DELETE FROM DONATION WHERE DONATION_ID = 1;
+
+
+--trigger to check if data is valid before updating it
+CREATE OR REPLACE TRIGGER validate_bike_value
+BEFORE UPDATE OF VALUE ON DONATION
+FOR EACH ROW
+BEGIN
+    -- Check if the new value is greater than 0
+    IF :NEW.VALUE <= 0 THEN
+        RAISE_APPLICATION_ERROR(-20002, 'Bike value must be greater than 0.');
+    END IF;
+END;
+
+--tests
+UPDATE DONATION
+SET VALUE = 0
+WHERE DONATION_ID = 1;
+
+
+UPDATE DONATION
+SET VALUE = 2000
+WHERE DONATION_ID = 1;
+
+SAVE;
+
